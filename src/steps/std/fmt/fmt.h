@@ -1,0 +1,1 @@
+void fmt_puts(char content[]);
