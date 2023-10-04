@@ -6,5 +6,12 @@
 // the "printf" method. from Rust, ends up becoming
 // fmt.puts, in LGrow.
 void fmt_puts(char content[]) {
-    printf("%s", content);
+    FILE *tfile = fopen("console.log", "w");
+
+    if (tfile != NULL) {
+        fprintf(tfile, content);
+        fclose(tfile);
+    };
+
+    printf("%s\\n", content);
 }

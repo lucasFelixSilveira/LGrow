@@ -17,12 +17,14 @@ pub fn is_valid_type(type_: &Token) -> bool {
     x != "Undefined"
 }
 
-pub fn get_adaptive_type(_type: String, param_token: &String, is_param: bool, is_array: bool) -> String {
+pub fn get_adaptive_type(_type: String, param_token: &String, is_param: bool, is_array: bool, response: bool) -> String {
     if is_param {
         match _type.as_str() {
             "char []" => {
                 if is_array { format!("char *{param_token}[]") }
-                else { format!("char {param_token}[]") }
+                else { 
+                    format!("char {param_token}[]") 
+                }
             },
             _ => format!("{_type} {param_token}")
         }
@@ -32,7 +34,8 @@ pub fn get_adaptive_type(_type: String, param_token: &String, is_param: bool, is
                 if is_array {
                     String::from("char**")
                 } else {
-                    String::from("char[]")
+                    if response { String::from("char*") }
+                    else { String::from("char[]") }
                 }
             },
             _ => {

@@ -1,5 +1,4 @@
-use crate::{steps::lang::lexical::Token, utils::file::valid};
-
+use crate::steps::lang::lexical::Token;
 use colored::*;
 
 // use crate::language;
@@ -62,13 +61,18 @@ pub fn string_value(file: &Token) -> String {
 // Function where the magic of syntactic analysis happens. Here checks, 
 // validations take place and we see if it is compatible with the
 // standard syntax of the language.
-pub fn analizer(tokens: &Vec<Token>, file: String) -> bool {
+pub fn analizer(tokens: &Vec<Token>, file: String, project_path: &String) -> bool {
     // Stores the index where the parser is. The list comes from Syntax Analyzer. 
     let mut token_counter: usize = 0;
+    let b = std::path::MAIN_SEPARATOR;
     // Separates the file name from the full project directory.
     let filename = file.rsplit_once(std::path::MAIN_SEPARATOR).unwrap().1.to_string();
-    
-    let mut keys = 0;
+    let mut modules: Vec<String> = vec![];
+
+    let mut keys: i32 = 0;
+    let mut p1: i32 = 0;
+    let mut pp: Vec<bool> = vec![];
+    let mut packages: Vec<&str> = vec![];
 
     // Function used to generate "pretty" errors for the user, this
     // allows a better understanding of where and how the error occurred.
@@ -278,7 +282,7 @@ pub fn analizer(tokens: &Vec<Token>, file: String) -> bool {
                             point_err(file_name, file.clone(), "You need to provide a \".lgw\" file")
                         }
 
-                        let comlon = next_token(&mut token_counter, false);
+                        let comlon: &Token = next_token(&mut token_counter, false);
                         
                         if comlon.content != ";" {
                             point_err(file_name, file.clone(), "';' was expected to end the expression.")
@@ -287,17 +291,45 @@ pub fn analizer(tokens: &Vec<Token>, file: String) -> bool {
                     },
                     _ => {
                         if is_string(content) {
-                            let cont = string_value(content);
-
-                            // println!("{}", cont);
+                            let cont: String = string_value(content);
                             
                             if [
                                 String::from("fmt")
                             ].contains(&cont) {
-                                let collon = next_token(&mut token_counter, false);
+                                let collon: &Token = next_token(&mut token_counter, false);
                                 if collon.content != ";" {
                                     point_err(collon, file.clone(), "Please finish the import using ';'")
                                 }
+
+                                modules.push(cont);
+                            } else {
+
+                                let using_or_err: &Token = next_token(&mut token_counter, false);
+                                if using_or_err.content != "using" { point_err(content, file.clone(), "Without using other keywords, you can only import language modules, or invoke files from other languages, if you use the \"using\" keyword") }
+
+
+                                let package_indicator: &Token = next_token(&mut token_counter, false);
+                                if !packages.contains(&package_indicator.content.as_str()) { point_err(content, file.clone(), "The Package provided is not recognized by the system, check if you have already imported it.") }
+
+                                let x = match package_indicator.content.as_str() {
+                                    "CLang" => cont.ends_with(".h"),
+                                    _ => false
+                                };
+                                if !x { point_err(content, file.clone(), "The informed file does not follow the rules requested by the informed Package.") }
+
+                                let e = utils::file::exist(&format!("{}{b}{}", project_path, cont));
+                                if !e { point_err(content, file.clone(), "The file informed in the import does not exist.") }
+
+                                match package_indicator.content.as_str() {
+                                    "CLang" => {
+                                        let e = utils::file::exist(&format!("{}{b}{}.c", project_path, utils::file::get_name(&cont)));
+                                        if !e { point_err(content, file.clone(), "The file informed in the import exists, plus a \".h\" file/From the C language, it needs a \".c\" functions file too.") }
+                                    },
+                                    _ => {}
+                                }
+
+                                let semicol = next_token(&mut token_counter, false);
+                                if semicol.content != ";" { point_err(semicol, file.clone(), "End the declaration using ';'"); }
                             }
 
                         }
@@ -306,21 +338,84 @@ pub fn analizer(tokens: &Vec<Token>, file: String) -> bool {
 
             },
 
-            "const" | "let" => {
-                let mut prefix = "";
-                if keyword.content == "const" { prefix = "static" }
+            // "const" | "let" => {
+            //     let mut prefix = "";
+            //     if keyword.content == "const" { prefix = "static" }
 
-                let varname = next_token(&mut token_counter, false);
-                let collon = next_token(&mut token_counter, false);
+            //     let varname = next_token(&mut token_counter, false);
+            //     let collon = next_token(&mut token_counter, false);
+            // }
+
+            "}" if keys > 0 => { keys -= 1; },
+            ")" if p1 > 0 => {
+                if pp[0] { 
+                    pp.remove(0);
+                    p1 -= 1;
+                    if p1 == 0 {
+                        let semicol = next_token(&mut token_counter, false);
+                        if semicol.content != ";" { point_err(semicol, file.clone(), "End the declaration using ';'"); }
+                    }
+                } else {
+                    continue;
+                }
             }
 
-            "}" if keys > 0 => { { keys -= 1; } },
+            "getPackage" => {
+                let package = next_token(&mut token_counter, false);
+                let is_valid: bool = match package.content.as_str() {
+                    "CLang" => true,
+                    _ => false
+                };
 
-            _ => point_err(keyword, file.clone(), "Unkdown keyword")
+                if !is_valid { point_err(package, file.clone(), "Package \"CLang\" is not recognized by the system.") }
+                
+                packages.push("CLang");
+
+                let semicol = next_token(&mut token_counter, false);
+                if semicol.content != ";" { point_err(semicol, file.clone(), "End the declaration using ';'"); }
+            }
+
+            _ => {
+                if modules.contains(&keyword.content) {
+                    let dot = next_token(&mut token_counter, false);
+                    if dot.content != "." { point_err(dot, file.clone(), "Expected 'module.'"); }
+
+                    let mut oppen = |func: &Token, token_counter| {
+                        let open = next_token(token_counter, false);
+                        if open.content != "(" { point_err(func, file.clone(), &format!("Expected '{}.{}()'", keyword.content, func.content)) }
+                        
+                        pp.push(true);
+                        p1 += 1;
+                    };
+
+                    match keyword.content.as_str() {
+                        "fmt" => {
+                            let func = next_token(&mut token_counter, false);
+                            let is_valid = match func.content.as_str() {
+                                "puts" => true,
+                                "info" => true,
+                                _ => false
+                            };
+                            if !is_valid { point_err(func, file.clone(), &format!("The function '{}' has not defined in '{}'", func.content, keyword.content)) }
+                            oppen(func, &mut token_counter);
+                        },
+                        _ => {}
+                    }
+                } else {
+                    if 
+                        p1 > 0 && is_string(keyword) {
+                        } else {
+                            point_err(keyword, file.clone(), "Unkdown keyword")
+                        }
+                }
+            }
         }
     }
 
-    if keys > 0 { other_err("You have not closed all possible open keys in your code.") }
+    if keys > 0 
+        || p1 > 0 { 
+            other_err("You have not closed all possible open brackets in your code.")
+        }
 
     true
 

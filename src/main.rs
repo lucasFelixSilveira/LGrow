@@ -1,30 +1,66 @@
-use std::{env, process::exit, fs}; // Import required for CORRECT use of the CLI
+use std::{env, process::exit, fs};
+
+use utils::output; // Import required for CORRECT use of the CLI
 
 // Creating imports so that the functions within each folder/file
 // defined here can be accessed in other files
 mod read;
 mod steps;
 mod utils;
+mod assets;
 
 fn main() {
-    // Collects arguments informed when executing the CLI
+
+    if cfg!(target_os = "windows") {
+        std::process::Command::new("cmd").arg("/c").arg("cls").status().unwrap();
+    } else {
+        std::process::Command::new("clear").status().unwrap();
+    }
+
+    // Collects arguments informed when executing the CLI.
     let arguments: Vec<String> = env::args().skip(1).collect();
 
-    let b = std::path::MAIN_SEPARATOR;
+    let b: char = std::path::MAIN_SEPARATOR;
 
-    if &arguments[0] == "syncModule" {
-        let module = &arguments[1][0..arguments[1].len()];
-        let x = env::current_dir().unwrap();
-        let mod_folder = format!("{}{b}src{b}steps{b}std{b}{module}", x.display());
+    // This function is used to read the .c and .h files
+    // of each standard language module, and passes them
+    // to a String within the storage file.
+    if &arguments[0] == "syncModule" || &arguments[0] == "sh" {
 
-        let c_content = fs::read_to_string(format!("{mod_folder}{b}{module}.c")).unwrap().replace('"', "\\\"");
-        let h_content = fs::read_to_string(format!("{mod_folder}{b}{module}.h")).unwrap().replace('"', "\\\"");
-        let c = format!("pub fn get_c() -> String {{\n    String::from(\"{c_content}\")\n}}");
-        let h = format!("pub fn get_h() -> String {{\n    String::from(\"{h_content}\")\n}}");
+        if &arguments[0] == "syncModule" {
 
-        let storage = format!("{c}\n\n{h}");   
+            // Collects the name and directory of the
+            // language's default module.
+            let module: &str = &arguments[1][0..arguments[1].len()];
+            let x = env::current_dir().unwrap();
+            let mod_folder: String = format!("{}{b}src{b}steps{b}std{b}{module}", x.display());
 
-        let _ = fs::write(format!("{mod_folder}{b}storage.rs"), storage).is_ok();
+            // Collecting and generating the code that will go 
+            // to the "storage" file.
+            let c_content: String = fs::read_to_string(format!("{mod_folder}{b}{module}.c")).unwrap().replace('"', "\\\"");
+            let h_content: String = fs::read_to_string(format!("{mod_folder}{b}{module}.h")).unwrap().replace('"', "\\\"");
+            let c: String = format!("pub fn get_c() -> String {{\n    String::from(\"{c_content}\")\n}}");
+            let h: String = format!("pub fn get_h() -> String {{\n    String::from(\"{h_content}\")\n}}");
+            let storage: String = format!("{c}\n\n{h}");   
+
+            let _ = fs::write(format!("{mod_folder}{b}storage.rs"), storage).is_ok();
+       
+        } else {
+            // Collects the name and directory of the
+            // language's default module.
+            let x = env::current_dir().unwrap();
+            let mod_folder: String = format!("{}{b}src{b}assets", x.display());
+
+            // Collecting and generating the code that will go 
+            // to the "storage" file.
+            let move_content: String = fs::read_to_string(format!("{mod_folder}{b}shell{b}move.sh")).unwrap().replace('"', "\\\"");
+            let run_content: String = fs::read_to_string(format!("{mod_folder}{b}shell{b}run_and_print.sh")).unwrap().replace('"', "\\\"");
+            let c: String = format!("pub fn get_run_and_print() -> String {{\n    String::from(\"{run_content}\")\n}}");
+            let h: String = format!("pub fn get_move() -> String {{\n    String::from(\"{move_content}\")\n}}");
+            let storage: String = format!("{c}\n\n{h}");   
+
+            let _ = fs::write(format!("{mod_folder}{b}storage.rs"), storage).is_ok();
+        }
 
         exit(1)
     }
@@ -34,10 +70,10 @@ fn main() {
     // LGrow project is located. It uses the arguments collected above.
     let mut directory: String = String::new();
 
-    // Execution process for directory collection
-    let mut i = 1;
+    // Execution process for directory collection.
+    let mut i: usize = 1;
     while i != 0 {
-        let x = &arguments[i - 1];
+        let x: &String = &arguments[i - 1];
         if x == "0x2" { i = 0 }
         else {
             let mut prefix = "";
@@ -47,34 +83,81 @@ fn main() {
         }
     }
 
+    // Creation of the folders necessary for compilation
     steps::project::template::crate_target(&directory);
     steps::project::template::create_bin(&directory);
 
     // Executes processes in a specific order normalized by other compilers.
     // These processes are necessary for the best performance and execution
     // of the compiler.
-    let path = directory.clone();
+    let path: String = directory.clone();
+    let mut total_files: Vec<String> = vec![];
     let mut files: Vec<read::LGrowFile> = vec![];
-    let main_content: (String, Vec<steps::lang::generate::Module>) = read::main(directory, &mut files);
+    let main_content: (String, Vec<steps::lang::generate::Module>, String) = read::main(directory, &mut files, false);
     
+    // Writes the project's main into the "Bin" folder generated by the
+    // compiler when the compilation command is executed.
     steps::project::template::create_write_c_file(&path, "main".to_string(), main_content.0);
-    
-    let modules = main_content.1;
+
+    output::sucess("Your project has completed the reading and main analysis phase, let's move on to the modules.".to_string(), "Main");
+
+    let modules: Vec<steps::lang::generate::Module> = main_content.1;
     for module in modules {
         if module.standard {
-            let m = &module;
-            let result = match module.name.as_str() {
+            let m: &steps::lang::generate::Module = &module;
+            // Collects the contents of each file.
+            let result: (String, String) = match module.name.as_str() {
                 "fmt" => {
-                    let c = steps::std::fmt::storage::get_c();
-                    let h = steps::std::fmt::storage::get_h();
+                    let c: String = steps::std::fmt::storage::get_c();
+                    let h: String = steps::std::fmt::storage::get_h();
                     (c, h)
                 },
                 _ => (String::new(), String::new())
             };
 
+            total_files.push(format!("{}.c", module.name));
+
+            // Create and write things within the contents of the ".c"
+            // and ".h" files of modules imported into your code.
             steps::project::template::create_write_c_file(&path, m.name.to_string(), result.0);
             steps::project::template::create_write_h_file(&path, m.name.to_string(), result.1);
+        } else {
+            // Checks whether the model entered is an LGrowth file or not.
+            if module.lgrow_file {
+                // Collects and validates the data from the informed file.
+                let dir: String = format!("{}{b}{}.lgw", path, module.name);
+                total_files.push(format!("{}.c", module.name));
+                let file: (String, Vec<steps::lang::generate::Module>, String) = read::main(dir, &mut files, true);
+
+                // Create and write things within the contents of the ".c"
+                // and ".h" files of modules imported into your code.
+                steps::project::template::create_write_c_file(&path, String::from(&module.name), file.0);
+                steps::project::template::create_write_h_file(&path, module.name, file.2);
+            } else {
+                if module.language == "C" {
+                    if module.in_project {
+                        // Collects and validates the data from the informed file.
+                        let cdir: String = format!("{}{b}{}.c", path, module.name);
+                        total_files.push(format!("{}.c", module.name));
+                        let hdir: String = format!("{}{b}{}.h", path, module.name);
+                        let file = (
+                            fs::read_to_string(&cdir).unwrap(),
+                            fs::read_to_string(&hdir).unwrap()
+                        );
+
+                        // Create and write things within the contents of the ".c"
+                        // and ".h" files of modules imported into your code.
+                        steps::project::template::create_write_c_file(&path, String::from(&module.name), file.0);
+                        steps::project::template::create_write_h_file(&path, module.name, file.1);
+                    }
+                }
+            }
         }
     }
+
+    output::sucess("Your project finishes the reading and analysis phase of the modules, now let's move on to compiling.".to_string(), "Modules");
+
+    // Build process using GCC
+    steps::lang::end::runtime(total_files, &path);
 
 }
